@@ -81,6 +81,7 @@ var _ = FDescribe("Buildpack", func() {
 	Describe("UploadBuildpack", func() {
 		var (
 			buildpackFile *os.File
+			bpPath        string
 			fakePb        *v2actionfakes.FakeSimpleProgressBar
 
 			warnings   Warnings
@@ -96,6 +97,8 @@ var _ = FDescribe("Buildpack", func() {
 
 			err = ioutil.WriteFile(buildpackFile.Name(), []byte("123456"), 0655)
 			Expect(err).ToNot(HaveOccurred())
+
+			bpPath = buildpackFile.Name()
 		})
 
 		AfterEach(func() {
@@ -105,7 +108,7 @@ var _ = FDescribe("Buildpack", func() {
 		JustBeforeEach(func() {
 			fakePb = new(v2actionfakes.FakeSimpleProgressBar)
 			fakePb.InitializeReturns(buildpackFile, 6, nil)
-			warnings, executeErr = actor.UploadBuildpack("some-bp-guid", buildpackFile.Name(), fakePb)
+			warnings, executeErr = actor.UploadBuildpack("some-bp-guid", bpPath, fakePb)
 		})
 
 		It("tracks the progress of the upload", func() {
@@ -123,7 +126,7 @@ var _ = FDescribe("Buildpack", func() {
 			It("uploads the buildpack and returns any warnings", func() {
 				Expect(executeErr).ToNot(HaveOccurred())
 				Expect(fakeCloudControllerClient.UploadBuildpackCallCount()).To(Equal(1))
-				guid, _, size := fakeCloudControllerClient.UploadBuildpackArgsForCall(0)
+				guid, _, _, size := fakeCloudControllerClient.UploadBuildpackArgsForCall(0)
 				Expect(guid).To(Equal("some-bp-guid"))
 				Expect(size).To(Equal(int64(6)))
 				Expect(warnings).To(ConsistOf("some-create-warning"))

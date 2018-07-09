@@ -1,7 +1,10 @@
 package ccv2_test
 
 import (
+	"io/ioutil"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"code.cloudfoundry.org/cli/api/cloudcontroller/ccerror"
 	. "code.cloudfoundry.org/cli/api/cloudcontroller/ccv2"
@@ -97,4 +100,82 @@ var _ = Describe("Buildpack", func() {
 			})
 		})
 	})
+
+	FDescribe("UploadBuildpack", func() {
+		var (
+			warnings   Warnings
+			executeErr error
+			bpFile     *os.File
+			bpFilePath string
+
+			err error
+		)
+
+		BeforeEach(func() {
+			bpFile, err = ioutil.TempFile("", "example-bp.zip")
+			Expect(err).ToNot(HaveOccurred())
+			// Expect(bpFile.Close()).ToNot(HaveOccurred())
+			Expect(os.RemoveAll(bpFile.Name())).ToNot(HaveOccurred())
+
+			dir, err := ioutil.TempDir("", "buildpack-dir-")
+			Expect(err).ToNot(HaveOccurred())
+			defer os.RemoveAll(dir)
+
+			bpFilePath = filepath.Join(dir, bpFile.Name())
+		})
+
+		JustBeforeEach(func() {
+			warnings, executeErr = client.UploadBuildpack("some-buildpack-guid", bpFilePath, bpFile, int64(6))
+		})
+
+		Context("when the upload is successful", func() {
+			BeforeEach(func() {
+				response := `{
+					"metadata": {
+						"guid": "buildpack-guid",
+						"url": "/v2/buildpacks/buildpack-guid/bits"
+					},
+					"entity": {
+						"guid": "buildpack-guid",
+						"status": "queued"
+					}
+				}`
+
+				server.AppendHandlers(
+					CombineHandlers(
+						VerifyRequest(http.MethodPut, "/v2/buildpacks/some-buildpack-guid/bits"),
+						RespondWith(http.StatusOK, response, http.Header{"X-Cf-Warnings": {"this is a warning"}}),
+					),
+				)
+			})
+
+			It("returns warnings", func() {
+				Expect(warnings).To(ConsistOf(Warnings{"this is a warning"}))
+				Expect(executeErr).ToNot(HaveOccurred())
+			})
+		})
+
+		Context("when the upload returns an error", func() {
+			BeforeEach(func() {
+				response := `{
+					"code": 30003,
+					"description": "The buildpack could not be found: some-buildpack-guid",
+					"error_code": "CF-Banana"
+				}`
+
+				server.AppendHandlers(
+					CombineHandlers(
+						VerifyRequest(http.MethodPut, "/v2/buildpacks/some-buildpack-guid/bits"),
+						RespondWith(http.StatusNotFound, response, http.Header{"X-Cf-Warnings": {"this is a warning"}}),
+					),
+				)
+			})
+
+			It("returns the error and warnings", func() {
+				Expect(executeErr).To(MatchError(ccerror.ResourceNotFoundError{Message: "The buildpack could not be found: some-buildpack-guid"}))
+				Expect(warnings).To(ConsistOf(Warnings{"this is a warning"}))
+			})
+		})
+	})
+
 })
