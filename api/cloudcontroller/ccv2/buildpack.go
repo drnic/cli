@@ -3,7 +3,6 @@ package ccv2
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"mime/multipart"
 	"path/filepath"
@@ -69,14 +68,12 @@ func (client *Client) CreateBuildpack(buildpack Buildpack) (Buildpack, Warnings,
 
 func (client *Client) UploadBuildpack(buildpackGUID string, buildpackPath string, buildpack io.Reader, buildpackLength int64) (Warnings, error) {
 
+	contentLength, err := client.calculateBuildpackRequestSize(buildpackLength, buildpackPath)
+	if err != nil {
+		return nil, err
+	}
+
 	contentType, body, writeErrors := client.createMultipartBodyAndHeaderForBuildpack(buildpack, buildpackPath)
-
-	buf := new(bytes.Buffer)
-	buf.ReadFrom(body)
-	s := buf.String()
-
-	fmt.Printf("body s, %v", s)
-	// fmt.Printf("writeErrors, %v", writeErrors)
 
 	request, err := client.newHTTPRequest(requestOptions{
 		RequestName: internal.PutBuildpackRequest,
@@ -85,11 +82,11 @@ func (client *Client) UploadBuildpack(buildpackGUID string, buildpackPath string
 	})
 
 	if err != nil {
-		fmt.Printf("err from generating requst, %v", request)
 		return nil, err
 	}
 
 	request.Header.Set("Content-Type", contentType)
+	request.ContentLength = contentLength
 
 	_, warnings, err := client.uploadBuildpackAsynchronously(request, writeErrors)
 	if err != nil {
@@ -97,6 +94,25 @@ func (client *Client) UploadBuildpack(buildpackGUID string, buildpackPath string
 	}
 	return warnings, nil
 
+}
+
+func (*Client) calculateBuildpackRequestSize(buildpackSize int64, bpPath string) (int64, error) {
+	body := &bytes.Buffer{}
+	form := multipart.NewWriter(body)
+
+	bpFileName := filepath.Base(bpPath)
+
+	_, err := form.CreateFormFile("buildpack", bpFileName)
+	if err != nil {
+		return 0, err
+	}
+
+	err = form.Close()
+	if err != nil {
+		return 0, err
+	}
+
+	return int64(body.Len()) + buildpackSize, nil
 }
 
 func (*Client) createMultipartBodyAndHeaderForBuildpack(buildpack io.Reader, bpPath string) (string, io.ReadSeeker, <-chan error) {
@@ -110,18 +126,16 @@ func (*Client) createMultipartBodyAndHeaderForBuildpack(buildpack io.Reader, bpP
 		defer close(writeErrors)
 		defer writerInput.Close()
 
-		bpFileName := filepath.Base(bpPath) // was passing bpPath necessary here?
+		bpFileName := filepath.Base(bpPath)
 		writer, err := form.CreateFormFile("buildpack", bpFileName)
 		if err != nil {
 			writeErrors <- err
-			fmt.Printf("error from createformfile, %v", writeErrors)
 			return
 		}
 
 		_, err = io.Copy(writer, buildpack)
 		if err != nil {
 			writeErrors <- err
-			fmt.Printf("error from copy, %v", writeErrors)
 			return
 		}
 
@@ -163,7 +177,6 @@ func (client *Client) uploadBuildpackAsynchronously(request *cloudcontroller.Req
 	for {
 		select {
 		case writeErr, ok := <-writeErrors:
-			// fmt.Printf("writeerr hit")
 			if !ok {
 				writeClosed = true
 				break // for select
@@ -172,7 +185,6 @@ func (client *Client) uploadBuildpackAsynchronously(request *cloudcontroller.Req
 				firstError = writeErr
 			}
 		case httpErr, ok := <-httpErrors:
-			fmt.Printf("httperr hit")
 			if !ok {
 				httpClosed = true
 				break // for select
@@ -187,6 +199,5 @@ func (client *Client) uploadBuildpackAsynchronously(request *cloudcontroller.Req
 		}
 	}
 
-	fmt.Printf("response %v", response)
 	return buildpack, response.Warnings, firstError
 }

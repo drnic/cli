@@ -1,8 +1,6 @@
 package v2action
 
 import (
-	"bytes"
-	"fmt"
 	"io"
 	"os"
 	"time"
@@ -81,13 +79,7 @@ func (actor *Actor) UploadBuildpack(GUID string, path string, progBar SimpleProg
 		return nil, err
 	}
 
-	buf := new(bytes.Buffer)
-	buf.ReadFrom(progressBarReader)
-	pbReader := buf.String()
-
-	fmt.Printf("pbReader %v", pbReader)
 	warnings, err := actor.CloudControllerClient.UploadBuildpack(GUID, path, progressBarReader, size)
-
 	if err != nil {
 		return Warnings(warnings), err
 	}
