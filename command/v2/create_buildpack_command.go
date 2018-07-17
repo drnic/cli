@@ -112,6 +112,7 @@ func (cmd *CreateBuildpackCommand) Execute(args []string) error {
 	cmd.UI.DisplayOK()
 	return nil
 }
+
 func (cmd CreateBuildpackCommand) displayAlreadyExistingBuildpackWithoutStack(err error) {
 	cmd.UI.DisplayNewline()
 	cmd.UI.DisplayWarning(err.Error())

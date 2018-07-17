@@ -3,11 +3,13 @@ package v2action
 import (
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"code.cloudfoundry.org/cli/actor/actionerror"
 	"code.cloudfoundry.org/cli/api/cloudcontroller/ccerror"
 	"code.cloudfoundry.org/cli/api/cloudcontroller/ccv2"
+	"code.cloudfoundry.org/cli/util/download"
 	pb "gopkg.in/cheggaaa/pb.v1"
 )
 
@@ -18,6 +20,12 @@ type Buildpack ccv2.Buildpack
 type SimpleProgressBar interface {
 	Initialize(path string) (io.Reader, int64, error)
 	Terminate()
+}
+
+//go:generate counterfeiter . Downloader
+
+type Downloader interface {
+	Download(string) (string, error)
 }
 
 type ProgressBar struct {
@@ -72,12 +80,19 @@ func (actor *Actor) CreateBuildpack(name string, position int, enabled bool) (Bu
 }
 
 func (actor *Actor) UploadBuildpack(GUID string, path string, progBar SimpleProgressBar) (Warnings, error) {
+	downloader := download.NewDownloader(time.Second * 30)
+
+	validatedPath, err := actor.PrepareBuildpackBits(path, downloader)
+	if err != nil {
+		return Warnings{}, err
+	}
+
 	progressBarReader, size, err := progBar.Initialize(path)
 	if err != nil {
 		return Warnings{}, err
 	}
 
-	warnings, err := actor.CloudControllerClient.UploadBuildpack(GUID, path, progressBarReader, size)
+	warnings, err := actor.CloudControllerClient.UploadBuildpack(GUID, validatedPath, progressBarReader, size)
 	if err != nil {
 		if _, ok := err.(ccerror.BuildpackAlreadyExistsForStackError); ok {
 			return Warnings(warnings), actionerror.BuildpackAlreadyExistsForStackError{Message: err.Error()}
@@ -87,4 +102,18 @@ func (actor *Actor) UploadBuildpack(GUID string, path string, progBar SimpleProg
 
 	progBar.Terminate()
 	return Warnings(warnings), nil
+}
+
+func (actor *Actor) PrepareBuildpackBits(path string, downloader Downloader) (string, error) {
+	if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
+		return path, nil
+	}
+
+	buildpackPath, err := downloader.Download(path)
+	if err != nil {
+		os.RemoveAll(buildpackPath)
+		return "", err
+	}
+
+	return buildpackPath, nil
 }
