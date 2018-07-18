@@ -3,6 +3,7 @@ package v2action
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -82,17 +83,17 @@ func (actor *Actor) CreateBuildpack(name string, position int, enabled bool) (Bu
 func (actor *Actor) UploadBuildpack(GUID string, path string, progBar SimpleProgressBar) (Warnings, error) {
 	downloader := download.NewDownloader(time.Second * 30)
 
-	validatedPath, err := actor.PrepareBuildpackBits(path, downloader)
+	pathToBuildpackBits, err := actor.PrepareBuildpackBits(path, downloader)
 	if err != nil {
 		return Warnings{}, err
 	}
 
-	progressBarReader, size, err := progBar.Initialize(path)
+	progressBarReader, size, err := progBar.Initialize(pathToBuildpackBits)
 	if err != nil {
 		return Warnings{}, err
 	}
 
-	warnings, err := actor.CloudControllerClient.UploadBuildpack(GUID, validatedPath, progressBarReader, size)
+	warnings, err := actor.CloudControllerClient.UploadBuildpack(GUID, pathToBuildpackBits, progressBarReader, size)
 	if err != nil {
 		if _, ok := err.(ccerror.BuildpackAlreadyExistsForStackError); ok {
 			return Warnings(warnings), actionerror.BuildpackAlreadyExistsForStackError{Message: err.Error()}
@@ -101,19 +102,32 @@ func (actor *Actor) UploadBuildpack(GUID string, path string, progBar SimpleProg
 	}
 
 	progBar.Terminate()
+
+	if actor.isURL(path) {
+		parentDir, _ := filepath.Split(pathToBuildpackBits)
+		os.RemoveAll(parentDir)
+	}
 	return Warnings(warnings), nil
 }
 
 func (actor *Actor) PrepareBuildpackBits(path string, downloader Downloader) (string, error) {
-	if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
-		return path, nil
-	}
 
-	buildpackPath, err := downloader.Download(path)
-	if err != nil {
-		os.RemoveAll(buildpackPath)
-		return "", err
-	}
+	if actor.isURL(path) {
+		tempPath, err := downloader.Download(path)
+		if err != nil {
+			parentDir, _ := filepath.Split(path)
+			os.RemoveAll(parentDir)
 
-	return buildpackPath, nil
+			return "", err
+		}
+		return tempPath, nil
+	}
+	return path, nil
+}
+
+func (actor *Actor) isURL(path string) bool {
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return true
+	}
+	return false
 }

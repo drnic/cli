@@ -102,12 +102,12 @@ var _ = Describe("Buildpack", func() {
 
 		BeforeEach(func() {
 			bpFile = strings.NewReader("")
-			bpFilePath = "some/fake-buildpack.zip"
 		})
 
 		JustBeforeEach(func() {
 			fakePb = new(v2actionfakes.FakeSimpleProgressBar)
 			fakePb.InitializeReturns(bpFile, 0, nil)
+			bpFilePath = "tmp/buildpack.zip"
 			warnings, executeErr = actor.UploadBuildpack("some-bp-guid", bpFilePath, fakePb)
 		})
 
@@ -161,9 +161,9 @@ var _ = Describe("Buildpack", func() {
 	Describe("PrepareBuildpackBits", func() {
 		var (
 			inPath         string
+			outPath        string
 			fakeDownloader *v2actionfakes.FakeDownloader
 
-			outPath    string
 			executeErr error
 		)
 
@@ -178,6 +178,7 @@ var _ = Describe("Buildpack", func() {
 		Context("when the buildpack path is a url", func() {
 			BeforeEach(func() {
 				inPath = "http://buildpacks.com/a.zip"
+				fakeDownloader = new(v2actionfakes.FakeDownloader)
 			})
 
 			Context("when downloading the file succeeds", func() {
@@ -209,10 +210,10 @@ var _ = Describe("Buildpack", func() {
 				inPath = "/foo/buildpacks/a.zip"
 			})
 
-			It("returns the file path", func() {
+			It("returns the local filepath", func() {
+				Expect(outPath).To(Equal("/foo/buildpacks/a.zip"))
 				Expect(executeErr).ToNot(HaveOccurred())
 				Expect(fakeDownloader.DownloadCallCount()).To(Equal(0))
-				Expect(outPath).To(Equal("/foo/buildpacks/a.zip"))
 			})
 		})
 	})

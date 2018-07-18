@@ -265,7 +265,7 @@ var _ = Describe("create buildpack command", func() {
 			})
 		})
 
-		FContext("when uploading from a URL", func() {
+		Context("when uploading from a URL", func() {
 			var buildpackURL string
 
 			Context("when specifying a valid URL", func() {
@@ -276,7 +276,6 @@ var _ = Describe("create buildpack command", func() {
 				It("successfully uploads a buildpack", func() {
 					username, _ := helpers.GetCredentials()
 					session := helpers.CF("create-buildpack", buildpackName, buildpackURL, "1")
-					Eventually(session).Should(Say("Starting download of buildpack from URL\\.\\.\\."))
 					Eventually(session).Should(Say("Creating buildpack %s as %s...", buildpackName, username))
 					Eventually(session).Should(Say("OK"))
 					Eventually(session).Should(Say("Uploading buildpack %s as %s...", buildpackName, username))
@@ -286,12 +285,10 @@ var _ = Describe("create buildpack command", func() {
 			})
 
 			Context("when a 4xx or 5xx HTTP response status is encountered", func() {
-				var (
-					server *Server
-				)
+				var server *Server
 
 				BeforeEach(func() {
-					server = NewTLSServer()
+					server = NewServer()
 					// Suppresses ginkgo server logs
 					server.HTTPTestServer.Config.ErrorLog = log.New(&bytes.Buffer{}, "", 0)
 					server.AppendHandlers(
@@ -308,24 +305,20 @@ var _ = Describe("create buildpack command", func() {
 
 				It("displays an appropriate error", func() {
 					session := helpers.CF("create-buildpack", buildpackName, server.URL(), "10")
-
-					Eventually(session).Should(Say("Starting download of buildpack from URL\\.\\.\\."))
-					Eventually(session).Should(Say("FAILED"))
 					Eventually(session.Err).Should(Say("Download attempt failed; server returned 404 Not Found"))
 					Eventually(session.Err).Should(Say("Unable to install; buildpack is not available from the given URL\\."))
-
 					Eventually(session).Should(Exit(1))
 				})
 			})
 
 			Context("when specifying an invalid URL", func() {
 				BeforeEach(func() {
-					buildpackURL = "does not work as a url"
+					buildpackURL = "http://not-a-real-url"
 				})
 
 				It("returns the appropriate error", func() {
 					session := helpers.CF("create-buildpack", buildpackName, buildpackURL, "1")
-					Eventually(session.Err).Should(Say("The specified path '%s' does not exist.", buildpackURL))
+					Eventually(session.Err).Should(Say("Get %s: dial tcp: lookup", buildpackURL))
 					Eventually(session).Should(Exit(1))
 				})
 			})
